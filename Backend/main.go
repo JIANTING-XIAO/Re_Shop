@@ -2,46 +2,78 @@ package main
 
 import (
 	"Re_Shop/Backend/internal/app/router"
-	"Re_Shop/Backend/internal/shared/config"
-	"fmt"
-	"github.com/gin-gonic/gin"
-	"gorm.io/driver/mysql"
-	"gorm.io/gorm"
+	"Re_Shop/Backend/internal/shared/db"
 	"log"
+	"os"
+	"path/filepath"
+
+	"github.com/gin-gonic/gin"
 )
 
 func main() {
-	//加载
+	if _, err := db.Init(); err != nil {
+		log.Fatalf("database init failed: %v", err)
+	}
+
 	r := gin.Default()
+	registerStaticAssets(r)
+	registerFrontendPage(r)
 	router.Register(r)
-	router.RegesiterUserRoutes(r)
+	router.RegisterUserRoutes(r)
 
 	log.Println("server running at :8080")
 	if err := r.Run(":8080"); err != nil {
 		log.Fatal(err)
 	}
-	//mysql
-	cfg, err := config.LoadConfig()
+}
+
+// 加载静态资源
+func registerStaticAssets(r *gin.Engine) {
+	assetPath, err := resolveAssetPath()
 	if err != nil {
-		log.Fatalf("load config failed: %v", err)
+		log.Fatalf("resolve static asset path failed: %v", err)
 	}
 
-	dbCfg := cfg.Database
-	dsn := fmt.Sprintf("%s:%s@tcp(%s:%d)/%s?charset=%s&parseTime=%t&loc=%s",
-		dbCfg.User,
-		dbCfg.Password,
-		dbCfg.Host,
-		dbCfg.Port,
-		dbCfg.DBName,
-		dbCfg.Charset,
-		dbCfg.ParseTime,
-		dbCfg.Loc,
-	)
+	r.Static("/static/img", assetPath)
+}
 
-	db, err := gorm.Open(mysql.Open(dsn), &gorm.Config{})
-	if err != nil {
-		log.Fatalf("connect database failed: %v", err)
+func resolveAssetPath() (string, error) {
+	candidates := []string{
+		filepath.Join("Backend", "internal", "resource", "img"),
+		filepath.Join("internal", "resource", "img"),
+	}
+	for _, candidate := range candidates {
+		if info, err := os.Stat(candidate); err == nil && info.IsDir() {
+			return candidate, nil
+		}
 	}
 
-	fmt.Println("database connected:", db != nil)
+	return "", os.ErrNotExist
+}
+
+func registerFrontendPage(r *gin.Engine) {
+	indexPath, err := resolveFrontendIndexPath()
+	if err != nil {
+		log.Printf("frontend index not found: %v", err)
+		return
+	}
+
+	r.GET("/index", func(c *gin.Context) {
+		c.File(indexPath)
+	})
+}
+
+func resolveFrontendIndexPath() (string, error) {
+	candidates := []string{
+		filepath.Join("Frontend", "index.html"),
+		filepath.Join("..", "Frontend", "index.html"),
+	}
+
+	for _, candidate := range candidates {
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			return candidate, nil
+		}
+	}
+
+	return "", os.ErrNotExist
 }
